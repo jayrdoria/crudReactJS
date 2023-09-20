@@ -4,11 +4,12 @@ const path = require("path");
 const cors = require("cors");
 const https = require("https");
 const fs = require("fs");
+
 require("dotenv").config();
 
 const app = express();
 app.use(express.json());
-const port = 2900;
+const port = 3001;
 
 // Read SSL certificates
 const privateKey = fs.readFileSync(
@@ -46,6 +47,98 @@ const dbConfig = {
 
 // Serve static files from the current directory
 app.use(express.static(path.join(__dirname)));
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+//File uploads
+const multer = require("multer");
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, "uploads/");
+  },
+  filename: (req, file, cb) => {
+    cb(null, Date.now() + "-" + file.originalname);
+  },
+});
+
+const allowedFileTypes = [
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/bmp",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain",
+  "image/vnd.adobe.photoshop",
+];
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 1024 * 1024 * 10, // 10 MB
+  },
+  fileFilter: (req, file, cb) => {
+    if (allowedFileTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(null, false);
+      cb(new Error("Invalid file type"));
+    }
+  },
+});
+
+//API Endpoint for FileUpload
+app.post("/uploadFiles", upload.array("files", 10), async (req, res) => {
+  try {
+    const projectID = req.body.projectID; // Make sure to send projectID in the FormData from the client
+    if (!projectID) {
+      return res.status(400).json({ message: "Project ID is required" });
+    }
+    const connection = await mysql.createConnection(dbConfig);
+
+    req.files.forEach(async (file) => {
+      const sql =
+        "INSERT INTO projectFiles (ProjectID, FilePath) VALUES (?, ?)";
+      await connection.execute(sql, [projectID, file.path]);
+    });
+
+    connection.end();
+    res.json({
+      success: true,
+      message: "Files uploaded and saved successfully",
+    });
+  } catch (error) {
+    console.error("An error occurred:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+});
+
+//API endpoint for File View
+app.get("/getFiles/:projectId", async (req, res) => {
+  const projectId = req.params.projectId;
+
+  // Connect to database
+  const connection = await mysql.createConnection(dbConfig);
+
+  // Fetch file paths for the specific project from the database
+  const [rows] = await connection.execute(
+    "SELECT * FROM projectFiles WHERE ProjectID = ?",
+    [projectId]
+  );
+  connection.end();
+
+  // Create an array of file objects with URLs
+  const files = rows.map((row) => ({
+    name: path.basename(row.FilePath), // Extracting file name from the file path
+    url: row.FilePath.replace("uploads", "/crudReactJS/uploads"), // Creating URL by replacing the directory with the static file route
+  }));
+  console.log(rows);
+  res.json(files);
+});
 
 // API Endpoint to read projects
 app.get("/readProjects", async (req, res) => {
@@ -63,19 +156,47 @@ app.get("/readProjects", async (req, res) => {
 });
 
 // API Endpoint to update a project
-app.put("/updateProject", async (req, res) => {
+app.put("/updateProject", upload.array("files", 10), async (req, res) => {
   try {
-    const { ProposedProject, Author, Description, EstimatedTimeline, ID } =
-      req.body;
+    const data = req.body; // Text fields
+    const files = req.files; // Files
+
+    if (
+      !data ||
+      !data.ProposedProject ||
+      !data.Author ||
+      !data.Description ||
+      !data.EstimatedTimeline ||
+      !data.ID
+    ) {
+      return res.status(400).json({ message: "Invalid input" });
+    }
+
     const connection = await mysql.createConnection(dbConfig);
-    const [result] = await connection.execute(
-      "UPDATE proposedProjects SET ProposedProject = ?, Author = ?, Description = ?, EstimatedTimeline = ? WHERE ID = ?",
-      [ProposedProject, Author, Description, EstimatedTimeline, ID]
-    );
-    connection.end();
+    const sql =
+      "UPDATE proposedProjects SET ProposedProject = ?, Author = ?, Description = ?, EstimatedTimeline = ? WHERE ID = ?";
+    const [result] = await connection.execute(sql, [
+      data.ProposedProject,
+      data.Author,
+      data.Description,
+      data.EstimatedTimeline,
+      data.ID,
+    ]);
+
     if (result.affectedRows > 0) {
+      // If there are new files, save them to projectFiles table
+      if (files.length > 0) {
+        for (const file of files) {
+          const sql =
+            "INSERT INTO projectFiles (ProjectID, FilePath) VALUES (?, ?)";
+          await connection.execute(sql, [data.ID, file.path]);
+        }
+      }
+
+      connection.end();
       res.json({ message: "Project updated successfully" });
     } else {
+      connection.end();
       res.status(400).json({ message: "Failed to update project" });
     }
   } catch (error) {
@@ -105,9 +226,10 @@ app.delete("/deleteProject", async (req, res) => {
 });
 
 //API Endpoint for createProject
-app.post("/createProjects", async (req, res) => {
+app.post("/createProjects", upload.array("files", 10), async (req, res) => {
   try {
-    const data = req.body; // Assuming you're using body-parser middleware
+    const data = req.body; // Text fields
+    const files = req.files; // Files
     if (
       !data ||
       !data.ProposedProject ||
@@ -121,15 +243,30 @@ app.post("/createProjects", async (req, res) => {
     const connection = await mysql.createConnection(dbConfig);
     const sql =
       "INSERT INTO proposedProjects (ProposedProject, DateAdded, Author, Description, EstimatedTimeline) VALUES (?, NOW(), ?, ?, ?)";
-    await connection.execute(sql, [
+    const [result] = await connection.execute(sql, [
       data.ProposedProject,
       data.Author,
       data.Description,
       data.EstimatedTimeline,
     ]);
-    connection.end();
 
-    res.json({ message: "Project created successfully" });
+    if (result.insertId) {
+      // Save files to projectFiles table here, using result.insertId for the project ID
+      for (const file of files) {
+        const sql =
+          "INSERT INTO projectFiles (ProjectID, FilePath) VALUES (?, ?)";
+        await connection.execute(sql, [result.insertId, file.path]);
+      }
+
+      connection.end();
+      res.json({
+        message: "Project created successfully",
+        projectID: result.insertId,
+      });
+    } else {
+      connection.end();
+      res.status(400).json({ message: "Project creation failed" });
+    }
   } catch (error) {
     console.error("An error occurred:", error);
     res.status(500).json({ message: "Internal Server Error" });

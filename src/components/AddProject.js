@@ -23,6 +23,13 @@ function AddProject() {
       key: "selection",
     },
   ]);
+
+  //File uploads
+  const [files, setFiles] = useState(null);
+  const handleFileChange = (e) => {
+    setFiles(e.target.files);
+  };
+
   const formatDate = (date) => {
     return date.toLocaleDateString("en-US", {
       year: "numeric",
@@ -35,6 +42,7 @@ function AddProject() {
     const { name, value } = e.target;
     setNewProject({ ...newProject, [name]: value });
   };
+
   const addProject = () => {
     const [{ startDate, endDate }] = state;
     const formattedStartDate = formatDate(startDate);
@@ -44,8 +52,25 @@ function AddProject() {
       ...newProject,
       EstimatedTimeline: timeFrameRange,
     };
+    const formData = new FormData();
+    formData.append("ProposedProject", newProject.ProposedProject);
+    formData.append("Author", newProject.Author);
+    formData.append("Description", newProject.Description);
+    formData.append(
+      "EstimatedTimeline",
+      projectWithDateRange.EstimatedTimeline
+    );
+    if (files) {
+      for (let i = 0; i < files.length; i++) {
+        formData.append("files", files[i]);
+      }
+    }
     axios
-      .post("https://lagueslo.com:2900/createProjects", projectWithDateRange)
+      .post("https://lagueslo.com:3001/createProjects", formData, {
+        headers: {
+          "Content-Type": "multipart/form-data",
+        },
+      })
       .then(() => {
         alert("Project added successfully");
         fetchProjects();
@@ -90,6 +115,12 @@ function AddProject() {
           onChange={(item) => setState([item.selection])}
           moveRangeOnFirstSelection={false}
           ranges={state}
+        />
+        <input
+          className="fileReaderUploader"
+          type="file"
+          multiple // Allows multiple files
+          onChange={handleFileChange}
         />
         <button onClick={addProject}>Add Project</button>
         <button onClick={() => setModalIsOpen(false)}>Close</button>

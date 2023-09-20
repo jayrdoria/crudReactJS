@@ -5,7 +5,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  max-height:80%;
+  max-height:93%;  /*Change 80 to 93*/
   max-width:80%;
   margin: auto;
   top: 0;
@@ -24,13 +24,15 @@
 .modal-content input,
 .modal-content textarea,
 .modal-content button {
-  margin-bottom: 10px;
+  margin-bottom: 7px; /* Change 10px to 7px */
   width: 90%;
+  height: auto; /* Add this height auto */
   background-color: #343541;
   color: white;
   border: none;
   border-radius: 5px;  /* Rounded corners for inputs */
 }
+
 .descriptionTextarea {
   height: 20%;
   resize:none;
@@ -43,6 +45,8 @@
 }
 .dateRangePicker button{
   width: 14%;
+  min-height: 3vh; /* Add the min and max height */
+  max-height: 5vh;
   padding :0px 0px !important;
 }
 
@@ -81,6 +85,11 @@ th, td {
 }
 th {
   background-color: #40414f;
+}
+
+/* Add code for td color */
+td {
+  background-color: #343541;
 }
 
 /* Input and Button styles */
